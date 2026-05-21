@@ -41,8 +41,8 @@ import {
 import Phaser from "phaser";
 import { createCombatGame } from "./game/CombatScene";
 
-const websocketUrl = import.meta.env.VITE_COMBAT_WS_URL ?? "ws://127.0.0.1:3001/ws/combat";
-const apiBaseUrl = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:3001";
+const websocketUrl = import.meta.env.VITE_COMBAT_WS_URL ?? createDefaultWebsocketUrl();
+const apiBaseUrl = import.meta.env.VITE_API_URL ?? createDefaultApiBaseUrl();
 const registerUrl = import.meta.env.VITE_REGISTER_URL ?? `${apiBaseUrl}/auth/register`;
 const localResolveDelayMs = Number(import.meta.env.VITE_LOCAL_RESOLVE_DELAY_MS ?? 550);
 const authStorageKey = "hex-space-game:user";
@@ -1857,6 +1857,45 @@ function readStoredAuthUser(): AuthUser | null {
 
 function createCombatWebsocketUrl(battleId: string): string {
   return `${websocketUrl}/${battleId}`;
+}
+
+function createDefaultApiBaseUrl(): string {
+  if (isLocalBrowserHost()) {
+    return "http://127.0.0.1:3001";
+  }
+
+  return window.location.origin;
+}
+
+function createDefaultWebsocketUrl(): string {
+  if (isLocalBrowserHost()) {
+    return "ws://127.0.0.1:3001/ws/combat";
+  }
+
+  const protocol = getBrowserWebsocketProtocol();
+  return `${protocol}//${window.location.host}/ws/combat`;
+}
+
+function isLocalBrowserHost(): boolean {
+  const host = window.location.hostname;
+
+  if (host === "localhost") {
+    return true;
+  }
+
+  if (host === "127.0.0.1") {
+    return true;
+  }
+
+  return host === "";
+}
+
+function getBrowserWebsocketProtocol(): string {
+  if (window.location.protocol === "https:") {
+    return "wss:";
+  }
+
+  return "ws:";
 }
 
 function isAuthUser(value: unknown): value is AuthUser {
