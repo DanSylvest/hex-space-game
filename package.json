@@ -1,0 +1,24 @@
+{
+  "name": "hex-space-game",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:client": "npm --workspace @hex-space/client run dev",
+    "dev:server": "npm --workspace @hex-space/server run dev",
+    "build": "npm --workspace @hex-space/shared run build && npm --workspace @hex-space/client run build && npm --workspace @hex-space/server run build",
+    "typecheck": "npm --workspace @hex-space/shared run build && npm --workspace @hex-space/client run typecheck && npm --workspace @hex-space/server run build"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@vitejs/plugin-react": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
+}
+
