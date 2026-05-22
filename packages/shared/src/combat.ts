@@ -1,4 +1,5 @@
 import {
+  BATTLEFIELD_CELLS,
   BATTLEFIELD_HEIGHT,
   BATTLEFIELD_WIDTH,
   EXIT_CELL,
@@ -106,7 +107,12 @@ const DEFAULT_SHIP_WEAPONS: ShipWeapon[] = [
   }
 ];
 
+const SIDE_A_SPAWN_MAX_COL = Math.max(1, Math.floor(BATTLEFIELD_WIDTH * 0.28));
+const SIDE_B_SPAWN_MIN_COL = Math.min(BATTLEFIELD_WIDTH - 1, Math.ceil(BATTLEFIELD_WIDTH * 0.72));
+
 export function createInitialCombatState(id = "demo-combat"): CombatState {
+  const spawnCells = createInitialShipCells();
+
   return {
     id,
     turn: 1,
@@ -119,7 +125,7 @@ export function createInitialCombatState(id = "demo-combat"): CombatState {
         id: "scout-a",
         name: "Scout A",
         side: "A",
-        cell: { col: 3, row: EXIT_CELL.row },
+        cell: spawnCells.A,
         hp: 10,
         maxHp: 10,
         speed: 1,
@@ -130,7 +136,7 @@ export function createInitialCombatState(id = "demo-combat"): CombatState {
         id: "raider-b",
         name: "Raider B",
         side: "B",
-        cell: { col: BATTLEFIELD_WIDTH - 4, row: EXIT_CELL.row },
+        cell: spawnCells.B,
         hp: 10,
         maxHp: 10,
         speed: 1,
@@ -159,6 +165,71 @@ export function getMaxWeaponRange(ship: ShipState): number {
 
 function createDefaultShipWeapons(): ShipWeapon[] {
   return DEFAULT_SHIP_WEAPONS.map((weapon) => ({ ...weapon }));
+}
+
+function createInitialShipCells(): Record<ShipSide, Cell> {
+  const occupiedCells = new Set<string>();
+  const sideA = chooseRandomSpawnCell("A", occupiedCells);
+  occupiedCells.add(cellKey(sideA));
+  const sideB = chooseRandomSpawnCell("B", occupiedCells);
+
+  return {
+    A: sideA,
+    B: sideB
+  };
+}
+
+function chooseRandomSpawnCell(side: ShipSide, occupiedCells: Set<string>): Cell {
+  const cells = getSpawnCells(side).filter((cell) => !occupiedCells.has(cellKey(cell)));
+
+  if (cells.length === 0) {
+    return getFallbackSpawnCell(side);
+  }
+
+  return cloneCell(cells[randomIndex(cells.length)]);
+}
+
+function getSpawnCells(side: ShipSide): Cell[] {
+  if (side === "A") {
+    return BATTLEFIELD_CELLS.filter(isSideASpawnCell);
+  }
+
+  return BATTLEFIELD_CELLS.filter(isSideBSpawnCell);
+}
+
+function isSideASpawnCell(cell: Cell): boolean {
+  if (sameCell(cell, EXIT_CELL)) {
+    return false;
+  }
+
+  return cell.col <= SIDE_A_SPAWN_MAX_COL;
+}
+
+function isSideBSpawnCell(cell: Cell): boolean {
+  if (sameCell(cell, EXIT_CELL)) {
+    return false;
+  }
+
+  return cell.col >= SIDE_B_SPAWN_MIN_COL;
+}
+
+function getFallbackSpawnCell(side: ShipSide): Cell {
+  if (side === "A") {
+    return { col: 0, row: EXIT_CELL.row };
+  }
+
+  return { col: BATTLEFIELD_WIDTH - 1, row: EXIT_CELL.row };
+}
+
+function cloneCell(cell: Cell): Cell {
+  return {
+    col: cell.col,
+    row: cell.row
+  };
+}
+
+function randomIndex(length: number): number {
+  return Math.floor(Math.random() * length);
 }
 
 export function createResolvingCombatState(state: CombatState): CombatState {
