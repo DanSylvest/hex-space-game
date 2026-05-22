@@ -49,6 +49,18 @@ export type BattlesResponse = {
 export type SystemPilotsResponse = {
   pilots: SystemPilot[];
 };
+export type WorldPresenceRequest = {
+  userId: string;
+};
+export type WorldPresenceResponse =
+  | {
+      ok: true;
+      onlineUntil: number;
+    }
+  | {
+      ok: false;
+      message: string;
+    };
 export type ActiveBattleResponse =
   | {
       ok: true;

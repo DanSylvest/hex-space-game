@@ -19,6 +19,7 @@ import {
   type StarSystem,
   type SystemPilot,
   type SystemPilotsResponse,
+  type WorldPresenceResponse,
   PLAYER_START_SYSTEM_ID,
   STAR_CONNECTIONS,
   STAR_SYSTEMS,
@@ -45,6 +46,7 @@ const websocketUrl = import.meta.env.VITE_COMBAT_WS_URL ?? createDefaultWebsocke
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? createDefaultApiBaseUrl();
 const registerUrl = import.meta.env.VITE_REGISTER_URL ?? `${apiBaseUrl}/auth/register`;
 const localResolveDelayMs = Number(import.meta.env.VITE_LOCAL_RESOLVE_DELAY_MS ?? 550);
+const presenceHeartbeatMs = Number(import.meta.env.VITE_PRESENCE_HEARTBEAT_MS ?? 15_000);
 const authStorageKey = "hex-space-game:user";
 
 type ConnectionStatus = "connecting" | "connected" | "local";
@@ -305,8 +307,23 @@ export function App() {
       return;
     }
 
-    void loadSystemBattles();
-    void loadSystemPilots();
+    void loadWorldSystemState();
+  }, [authUser, selectedSystemId]);
+
+  useEffect(() => {
+    if (!authUser) {
+      return;
+    }
+
+    void sendPresence();
+
+    const timerId = window.setInterval(() => {
+      void refreshOnlinePresence();
+    }, presenceHeartbeatMs);
+
+    return () => {
+      window.clearInterval(timerId);
+    };
   }, [authUser, selectedSystemId]);
 
   useEffect(() => {
@@ -413,6 +430,38 @@ export function App() {
 
     socket.send(JSON.stringify(message));
     return true;
+  }
+
+  async function loadWorldSystemState(): Promise<void> {
+    await sendPresence();
+    await Promise.all([loadSystemBattles(), loadSystemPilots()]);
+  }
+
+  async function refreshOnlinePresence(): Promise<void> {
+    await sendPresence();
+    await loadSystemPilots();
+  }
+
+  async function sendPresence(): Promise<boolean> {
+    if (!authUser) {
+      return false;
+    }
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/world/presence`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          userId: authUser.id
+        })
+      });
+      const result = (await response.json()) as WorldPresenceResponse;
+      return result.ok;
+    } catch {
+      return false;
+    }
   }
 
   async function loadSystemBattles(): Promise<void> {

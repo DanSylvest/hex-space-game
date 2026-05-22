@@ -13,6 +13,8 @@ import {
   type StartBattleResponse,
   type SystemPilot,
   type SystemPilotsResponse,
+  type WorldPresenceRequest,
+  type WorldPresenceResponse,
   STAR_SYSTEMS,
   PLAYER_START_SYSTEM_ID,
   createInitialCombatState,
@@ -48,6 +50,7 @@ type CombatRuntime = {
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? "0.0.0.0";
 const resolveDelayMs = Number(process.env.COMBAT_RESOLVE_DELAY_MS ?? 550);
+const onlinePresenceTtlMs = Number(process.env.ONLINE_PRESENCE_TTL_MS ?? 45_000);
 const scrypt = promisify(scryptCallback);
 const usersFilePath = path.resolve("data", "users.json");
 
@@ -57,6 +60,7 @@ const fastify = Fastify({
 
 const battles = new Map<string, CombatRuntime>();
 const activeBattleByUserId = new Map<string, string>();
+const onlinePresenceByUserId = new Map<string, number>();
 
 await fastify.register(websocket);
 
@@ -71,7 +75,8 @@ fastify.options("/*", async () => ({}));
 fastify.get("/health", async () => ({
   ok: true,
   battles: battles.size,
-  activePlayers: activeBattleByUserId.size
+  activePlayers: activeBattleByUserId.size,
+  onlinePlayers: countOnlinePlayers()
 }));
 
 fastify.post<{ Body: RegisterRequest; Reply: RegisterResponse }>("/auth/register", async (request, reply) => {
@@ -138,11 +143,45 @@ fastify.get<{
   Reply: SystemPilotsResponse;
 }>("/world/systems/:systemId/pilots", async (request) => {
   const users = await readUsers();
+  pruneOfflinePresence();
 
   return {
     pilots: users
+      .filter((user) => isUserOnline(user.id))
       .map((user) => toSystemPilot(user))
       .filter((pilot) => pilot.systemId === request.params.systemId)
+  };
+});
+
+fastify.post<{
+  Body: WorldPresenceRequest;
+  Reply: WorldPresenceResponse;
+}>("/world/presence", async (request, reply) => {
+  const userId = request.body?.userId;
+
+  if (typeof userId !== "string" || userId.length === 0) {
+    reply.code(400);
+    return {
+      ok: false,
+      message: "User id is required."
+    };
+  }
+
+  const user = await findUserById(userId);
+
+  if (!user) {
+    reply.code(404);
+    return {
+      ok: false,
+      message: "User does not exist."
+    };
+  }
+
+  const onlineUntil = markUserOnline(user.id);
+
+  return {
+    ok: true,
+    onlineUntil
   };
 });
 
@@ -173,8 +212,19 @@ fastify.post<{
 
   const targetUserId = parseTargetUserId(request.body?.targetUserId);
   const users = await readUsers();
+  const user = findTargetUser(users, userId);
   const targetUser = findTargetUser(users, targetUserId);
   const existingBattleId = getActiveBattleIdForUser(userId);
+
+  if (!user) {
+    reply.code(404);
+    return {
+      ok: false,
+      message: "User does not exist."
+    };
+  }
+
+  markUserOnline(user.id);
 
   if (existingBattleId) {
     reply.code(409);
@@ -198,6 +248,14 @@ fastify.post<{
     return {
       ok: false,
       message: "Target pilot does not exist."
+    };
+  }
+
+  if (targetUserId && !isUserOnline(targetUserId)) {
+    reply.code(409);
+    return {
+      ok: false,
+      message: "Target pilot is offline."
     };
   }
 
@@ -576,6 +634,11 @@ async function readUsers(): Promise<UserRecord[]> {
   return [];
 }
 
+async function findUserById(userId: string): Promise<UserRecord | undefined> {
+  const users = await readUsers();
+  return users.find((user) => user.id === userId);
+}
+
 async function writeUsers(users: UserRecord[]): Promise<void> {
   await mkdir(path.dirname(usersFilePath), { recursive: true });
   await writeFile(usersFilePath, JSON.stringify(users, null, 2), "utf8");
@@ -605,6 +668,40 @@ function toAuthUser(user: UserRecord): AuthUser {
     nickname: user.nickname,
     createdAt: user.createdAt
   };
+}
+
+function markUserOnline(userId: string): number {
+  const onlineUntil = Date.now() + onlinePresenceTtlMs;
+  onlinePresenceByUserId.set(userId, onlineUntil);
+  return onlineUntil;
+}
+
+function isUserOnline(userId: string): boolean {
+  const onlineUntil = onlinePresenceByUserId.get(userId);
+
+  if (!onlineUntil) {
+    return false;
+  }
+
+  if (onlineUntil <= Date.now()) {
+    onlinePresenceByUserId.delete(userId);
+    return false;
+  }
+
+  return true;
+}
+
+function pruneOfflinePresence(): void {
+  for (const [userId, onlineUntil] of onlinePresenceByUserId) {
+    if (onlineUntil <= Date.now()) {
+      onlinePresenceByUserId.delete(userId);
+    }
+  }
+}
+
+function countOnlinePlayers(): number {
+  pruneOfflinePresence();
+  return onlinePresenceByUserId.size;
 }
 
 function toSystemPilot(user: UserRecord): SystemPilot {
